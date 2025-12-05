@@ -1,0 +1,9 @@
+apache-airflow
+pandas
+numpy
+requests
+pymongo
+certifi
+seaborn
+matplotlib
+dotenv
