@@ -3,3 +3,5 @@
 logs/
 analysis/
 .idea/
+pycache/
+dags/__pycache__/

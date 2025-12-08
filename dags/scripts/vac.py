@@ -1,13 +1,13 @@
+import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-import os
-from pymongo import MongoClient, ASCENDING, DESCENDING, GEOSPHERE
-from datetime import datetime
-from pprint import pprint
-import os
+import certifi
+from pymongo import MongoClient, InsertOne
 from dotenv import load_dotenv
-# --- FUNCTION DEFINITIONS ---
+
+# Load environment variables
+load_dotenv()
 
 def load_data(filepath):
     """
@@ -22,32 +22,20 @@ def load_data(filepath):
     print("Data loaded successfully!")
     return df
 
+
 def summarize_data(df, dataset_name=""):
     """
     Prints a summary overview of the DataFrame.
-    `dataset_name` is used to describe the data (e.g., 'original', 'cleaned').
     """
     print(f"\n--- DATA OVERVIEW REPORT: {dataset_name.upper()} ---")
-
-    # 1. Data Shape
-    print(f"\n1. Data Shape:")
-    print(f"   - Rows: {df.shape[0]}")
-    print(f"   - Columns: {df.shape[1]}")
-
-    # 2. First 5 rows
-    print("\n2. First 5 rows (.head()):")
+    print(f"\n1. Data Shape: {df.shape}")
+    print("\n2. First 5 rows:")
     print(df.head())
-
-    # 3. Data info and types
-    print("\n3. Data info and types (.info()):")
+    print("\n3. Data info:")
     df.info()
-
-    # 4. Descriptive statistics for numerical columns
-    print("\n4. Descriptive statistics for numerical columns (.describe()):")
+    print("\n4. Descriptive statistics:")
     print(df.describe().T)
-
     print(f"--- END OF OVERVIEW REPORT ---")
-
 
 def clean_and_preprocess(df):
     """
@@ -55,16 +43,11 @@ def clean_and_preprocess(df):
     """
     print("\n\n--- Starting data cleaning and preprocessing ---")
 
-    # 1. Standardize 'date' data type and sort values
     print("1. Standardizing 'date' data type and sorting values...")
     df['date'] = pd.to_datetime(df['date'], errors='coerce')
-
-    # FIX: Drop rows with invalid dates (NaT) to prevent errors with idxmax()
     df.dropna(subset=['date'], inplace=True)
-
     df = df.sort_values(by=['location', 'date'])
 
-    # 2. Handle duplicate data
     print("2. Handling duplicate data...")
     num_duplicates = df.duplicated().sum()
     if num_duplicates > 0:
@@ -73,7 +56,6 @@ def clean_and_preprocess(df):
     else:
         print("   - No duplicate data found.")
 
-    # 3. Handle missing data
     print("3. Handling missing data...")
     print("   - Applying 'forward-fill' method per location group.")
     df = df.groupby('location', group_keys=False).apply(lambda group: group.ffill())
@@ -84,153 +66,110 @@ def clean_and_preprocess(df):
     print("Preprocessing complete!")
     return df
 
+
 def analyze_and_visualize(df):
     """
     Performs data analysis and visualization.
     """
     print("\n\n--- Starting analysis and visualization ---")
 
-    # --- Plot 1: Distribution of Daily Vaccinations ---
+    # Plot 1: Distribution
     plt.figure(figsize=(12, 6))
     sns.histplot(df[df['daily_vaccinations'] > 0]['daily_vaccinations'], bins=100, kde=True, log_scale=True)
-    plt.title('Distribution of Daily Vaccinations (Log Scale)', fontsize=16)
-    plt.xlabel('Daily Vaccinations', fontsize=12)
-    plt.ylabel('Frequency', fontsize=12)
+    plt.title('Distribution of Daily Vaccinations (Log Scale)')
 
-    # --- Plot 2: Top 10 Countries by Total People Vaccinated ---
-    df_countries_only = df[~df['iso_code'].str.startswith('OWID_', na=False)]
-    latest_data = df_countries_only.loc[df_countries_only.groupby('location')['date'].idxmax()]
-    top_10_countries = latest_data.nlargest(10, 'people_vaccinated')
+    # Plot 2: Top 10 Countries
+    df_countries = df[~df['iso_code'].str.startswith('OWID_', na=False)]
+    latest_data = df_countries.loc[df_countries.groupby('location')['date'].idxmax()]
+    top_10 = latest_data.nlargest(10, 'people_vaccinated')
 
     plt.figure(figsize=(12, 8))
-    sns.barplot(x='people_vaccinated', y='location', data=top_10_countries, palette='viridis')
-    plt.title('Top 10 Countries by Total People Vaccinated', fontsize=16)
-    plt.xlabel('Total People Vaccinated', fontsize=12)
-    plt.ylabel('Country', fontsize=12)
+    sns.barplot(x='people_vaccinated', y='location', data=top_10, palette='viridis')
+    plt.title('Top 10 Countries by Total People Vaccinated')
 
-    # --- Plot 3: Correlation Heatmap ---
-    df_numeric = df.select_dtypes(include=['float64', 'int64'])
-    correlation_matrix = df_numeric.corr()
-
+    # Plot 3: Heatmap
     plt.figure(figsize=(14, 10))
-    sns.heatmap(correlation_matrix, annot=False, cmap='coolwarm')
-    plt.title('Correlation Heatmap of Numerical Features', fontsize=16)
+    numeric_df = df.select_dtypes(include=['float64', 'int64'])
+    sns.heatmap(numeric_df.corr(), annot=False, cmap='coolwarm')
+    plt.title('Correlation Heatmap')
 
-    # --- Plot 4: Total Global Vaccinations Over Time ---
-    global_vaccinations_over_time = df.groupby('date')['daily_vaccinations'].sum().cumsum()
-
+    # Plot 4: Time Series
+    global_vac_time = df.groupby('date')['daily_vaccinations'].sum().cumsum()
     plt.figure(figsize=(14, 7))
-    global_vaccinations_over_time.plot(kind='line', lw=2)
-    plt.title('Total Global Vaccinations Over Time', fontsize=16)
-    plt.xlabel('Date', fontsize=12)
-    plt.ylabel('Total Vaccinations (in Billions)', fontsize=12)
+    global_vac_time.plot(kind='line', lw=2)
+    plt.title('Total Global Vaccinations Over Time')
     plt.grid(True)
 
-    print("Analysis and visualization complete! Please close the plot windows to exit.")
     plt.tight_layout()
+    # Note: plt.show() blocks execution. Comment out if running automatically.
     plt.show()
-
-
-from pymongo import InsertOne
 
 
 def save_to_mongodb(df, connection_string, db_name, collection_name):
     """
-    Saves data to MongoDB with performance optimizations (Batching + Ordered=False).
+    Saves data to MongoDB using batch processing.
     """
-    print("\n--- Saving data to MongoDB (Optimized) ---")
+    print("\n--- Saving data to MongoDB ---")
     try:
-        # 1. Connect
-        import certifi
+        # Use certifi for secure SSL context
         client = MongoClient(connection_string, tlsCAFile=certifi.where())
         db = client[db_name]
         collection = db[collection_name]
 
-        # 2. Clear existing data
         print(f"Clearing existing data in '{collection_name}'...")
         collection.delete_many({})
 
-        # 3. Convert DataFrame to dicts
         print("Converting data to dictionary format...")
         records = df.to_dict(orient='records')
         total_records = len(records)
+        batch_size = 5000
 
-        # 4. Insert in Batches
-        batch_size = 5000  # Send 5,000 records per network request
         print(f"Inserting {total_records} records in batches of {batch_size}...")
-
-        # Loop through data in chunks
         for i in range(0, total_records, batch_size):
             batch = records[i: i + batch_size]
-
-            # ordered=False allows MongoDB to insert in parallel and not stop on errors
             collection.insert_many(batch, ordered=False)
-
-            # Print progress
             print(f"   Saved {min(i + batch_size, total_records)} / {total_records} records...")
 
         print("Successfully inserted all documents.")
-        # Create indexing
+
+        # Re-create index
         try:
             collection.drop_index("loc_date_idx")
-        except Exception as e:
-            print(f"Not found: {e}")
-        collection.create_index(
-            [("location", 1), ("date", -1)],
-            name="loc_date_idx"
-        )
+        except Exception:
+            pass  # Index didn't exist
+
+        collection.create_index([("location", 1), ("date", -1)], name="loc_date_idx")
         client.close()
 
     except Exception as e:
         print(f"ERROR: Could not save to MongoDB. Error: {e}")
 
 
-# --- MAIN EXECUTION BLOCK ---
-def save_cleaned_data(df, output_path):
-    """
-    Saves the cleaned DataFrame to a new CSV file.
-    """
-    try:
-        output_dir = os.path.dirname(output_path)
-
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-
-        df.to_csv(output_path, index=False)
-        print(f"\nCleaned data saved successfully to: {output_path}")
-    except Exception as e:
-        print(f"ERROR: Could not save the file. Error: {e}")
-
-# --- MAIN EXECUTION BLOCK ---
-
 def main():
     """
-    The main function to orchestrate the entire workflow.
+    Main execution workflow.
     """
-    # File Configuration
     input_filepath = 'vaccinations.csv'
 
-    # MongoDB Configuration
+    # Retrieve securely from environment variables
+    # Create a .env file with: MONGO_URI=mongodb+srv://user:pass@...
     MONGO_URI = os.getenv("MONGO_URI")
     DB_NAME = "testing_db"
     COLLECTION_NAME = "vaccinations_cleaned"
 
-    # 1. Load data
+    if not MONGO_URI:
+        print("Error: MONGO_URI not found in environment variables.")
+        return
+
     df = load_data(input_filepath)
 
     if df is not None:
-        print("Columns found:", df.columns.tolist())
-        # 2. Overview of the original data
         summarize_data(df, dataset_name="original")
-
-        # 3. Clean and preprocess data
         df_cleaned = clean_and_preprocess(df)
-        print("\nColumns RIGHT BEFORE analysis:", df_cleaned.columns.tolist())
 
-        # 4. Analyze and visualize data
+        # Uncomment to view charts
         # analyze_and_visualize(df_cleaned)
 
-        # 5. Save the cleaned data to MongoDB
         save_to_mongodb(df_cleaned, MONGO_URI, DB_NAME, COLLECTION_NAME)
 
 

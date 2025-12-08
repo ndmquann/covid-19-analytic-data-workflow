@@ -51,8 +51,11 @@ with DAG(
     [t_global5050, t_disease_sh, t_vaccinations]
 
 
-with DAG(
-    'covid_19_incremental_load_scripts',
-) as il_dag:
-
-    il_global5050 = BashOperator()
+# with DAG(
+#     'covid_19_incremental_load_scripts',
+# ) as il_dag:
+#
+#     il_global5050 = BashOperator(
+#         task_id='run_disease_sh_incremental_load_script',
+#         bash_command=f'python "{os.path.join(SCRIPTS_FOLDER, "il_dies.py")}"'
+#     )
