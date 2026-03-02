@@ -1,1 +1,0 @@
-# covid-19-analytic-data-workflow
