@@ -38,14 +38,15 @@ To optimize performance and reduce network overhead, the project implements two 
 | **Processing** | Pandas | Efficent handling of large CSVs and complex transformation. |
 | **Orchestration** | Airflow | Robust scheduling, error handling, and visual DAG monitoring. |
 
-# 6. Setup
+# 6. Setup & Run
 ## Create Virtual Environment
 `python -m venv venv`
 `venv\Scripts\activate`
 ## Install Requirements
 `pip install -r requirements.txt`
-# 7. How To Run
 ## Init Airflow
 `docker-compose up --build airflow-init`
 ## Run Containers
 `docker-compose up`
+## Access
+[localhost:8080](https://localhost:8080)
